@@ -1,4 +1,4 @@
-import dotenv
+#import dotenv
 import pydot
 import requests
 import numpy as np
@@ -17,7 +17,7 @@ NB_AUDIO_SAMPLES = 1321967
 SAMPLING_RATE = 44100
 
 # Load the environment from the .env file.
-dotenv.load_dotenv(dotenv.find_dotenv())
+#dotenv.load_dotenv(dotenv.find_dotenv())
 
 
 class FreeMusicArchive:
@@ -183,6 +183,7 @@ class Genres:
 def load(filepath):
 
     filename = os.path.basename(filepath)
+    print(filename)
 
     if 'features' in filename:
         return pd.read_csv(filepath, index_col=0, header=[0, 1, 2])
@@ -198,7 +199,8 @@ def load(filepath):
 
         COLUMNS = [('track', 'tags'), ('album', 'tags'), ('artist', 'tags'),
                    ('track', 'genres'), ('track', 'genres_all'),
-                   ('track', 'genres_top')]
+                   #('track', 'genre_top')
+                   ]
         for column in COLUMNS:
             tracks[column] = tracks[column].map(ast.literal_eval)
 
