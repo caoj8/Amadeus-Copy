@@ -29,4 +29,7 @@ once you have installed the package you need to build a new yml file
 
 Then push it back to the repo so we all can install it
 
+## Adding the data
+
+After downloading the data, copy them in top level folder the repository. Currently we are using these two `./fma_metadata/` and `./fma_small/`.
 
