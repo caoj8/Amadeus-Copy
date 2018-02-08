@@ -1,6 +1,11 @@
 # Amadeus
 CS 172B Winter 2018 - Team 16
 
+## Goal
+
+
+## Setting up Dev Environment
+
 To use the group environment run the following in the top level of the repo
 
 	conda env create -f environment.yml
