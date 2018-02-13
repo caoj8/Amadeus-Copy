@@ -279,11 +279,12 @@ class PydubLoader(RawAudioLoader):
         return np.array(x)
 
 
-class FfmpegLoader(RawAudioLoader):
+class FfmpegLoader(RawAudioLoader,cmd_prefix = ""):
     def _load(self, filepath):
         """Fastest and less CPU intensive loading method."""
         import subprocess as sp
-        command = ['ffmpeg',
+        
+        command = [cmd_prefix+'ffmpeg',
                    '-i', filepath,
                    '-f', 's16le',
                    '-acodec', 'pcm_s16le',
