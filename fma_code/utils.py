@@ -183,8 +183,6 @@ class Genres:
 def load(filepath):
 
     filename = os.path.basename(filepath)
-    print(filename)
-
     if 'features' in filename:
         return pd.read_csv(filepath, index_col=0, header=[0, 1, 2])
 
