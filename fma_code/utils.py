@@ -353,3 +353,75 @@ def build_sample_loader(audio_dir, Y, loader):
                 return self.X[:batch_size], self.Y[:batch_size]
 
     return SampleLoader
+
+def build_sample_saver(audio_dir, output_dir, Y, loader):
+
+    class SampleSaver:
+
+        def __init__(self, tids, batch_size=4):
+            self.lock1 = multiprocessing.Lock()
+            self.lock2 = multiprocessing.Lock()
+            self.batch_foremost = sharedctypes.RawValue(ctypes.c_int, 0)
+            self.batch_rearmost = sharedctypes.RawValue(ctypes.c_int, -1)
+            self.condition = multiprocessing.Condition(lock=self.lock2)
+
+            data = sharedctypes.RawArray(ctypes.c_int, tids.data)
+            self.tids = np.ctypeslib.as_array(data)
+
+            self.batch_size = batch_size
+            self.loader = loader
+            self.X = np.empty((self.batch_size, *loader.shape))
+            self.Y = np.empty((self.batch_size, Y.shape[1]), dtype=np.int)
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+
+            with self.lock1:
+                #I think this locked section is saying "I'm taking care of this batch."
+                #So it increments all the batch counters to the next batch.
+                if self.batch_foremost.value == 0:
+                    np.random.shuffle(self.tids)
+                    #I think this is shuffling everything the first time __next__ is called.
+
+                batch_current = self.batch_foremost.value 
+                if self.batch_foremost.value + self.batch_size < self.tids.size:
+                    batch_size = self.batch_size
+                    self.batch_foremost.value += self.batch_size
+                else:
+                    batch_size = self.tids.size - self.batch_foremost.value
+                    self.batch_foremost.value = 0
+
+                # print(self.tids, self.batch_foremost.value, batch_current, self.tids[batch_current], batch_size)
+                # print('queue', self.tids[batch_current], batch_size)
+                tids = np.array(self.tids[batch_current:batch_current+batch_size])
+
+            for i, tid in enumerate(tids):
+                #for all the track ids in the batch that I'm taking care of,
+                try:
+                    self.X[i] = self.loader.load(get_audio_path(audio_dir, tid))
+                except Exception as e:
+                    print(i, tid)
+                    raise e
+                
+                self.Y[i] = Y.loc[tid]
+
+            with self.lock2:
+                while (batch_current - self.batch_rearmost.value) % self.tids.size > self.batch_size:
+                    # print('wait', indices[0], batch_current, self.batch_rearmost.value)
+                    self.condition.wait()
+                self.condition.notify_all()
+                # print('yield', indices[0], batch_current, self.batch_rearmost.value)
+                self.batch_rearmost.value = batch_current
+                #print(self.X.shape, self.X[:batch_size].shape) dunno why we're doing [:batch_size]... it's the whole thing
+                np.save("{}\\{}X.npy".format(output_dir, batch_current//self.batch_size), self.X[:batch_size])
+                np.save("{}\\{}y.npy".format(output_dir, batch_current//self.batch_size), self.Y[:batch_size])
+                #return self.X[:batch_size], self.Y[:batch_size]
+        def save_all(self):
+            size = self.tids.size
+            for _ in self:
+                print(self.batch_foremost, "out of", size)
+                
+    return SampleSaver
+
