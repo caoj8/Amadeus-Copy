@@ -247,7 +247,7 @@ class RawAudioLoader(Loader):
     def __init__(self, sampling_rate=SAMPLING_RATE):
         self.sampling_rate = sampling_rate
         self.shape = (NB_AUDIO_SAMPLES * sampling_rate // SAMPLING_RATE, )
-
+        self.cmd_prefix ="/home/ravi/anaconda3/envs/amadeus/bin/"
     def load(self, filepath):
         return self._load(filepath)[:self.shape[0]]
 
@@ -283,7 +283,9 @@ class FfmpegLoader(RawAudioLoader):
     def _load(self, filepath,cmd_prefix = ""):
         """Fastest and less CPU intensive loading method."""
         import subprocess as sp
-        
+        if cmd_prefix=="":
+            cmd_prefix=self.cmd_prefix
+
         command = [cmd_prefix+'ffmpeg',
                    '-i', filepath,
                    '-f', 's16le',
@@ -297,6 +299,19 @@ class FfmpegLoader(RawAudioLoader):
 
         return np.fromstring(proc.stdout, dtype="int16")
 
+class NumpyMatrixLoader(RawAudioLoader):
+    def  _load(self,filepath):
+        """
+        lets say our samples and targets are at
+        /a/b/1X.npy
+        /a/b/1Y.npy
+
+        pass the filepath as /a/b/1
+        """
+        X = np.load("{}{}.npy".format(filepath,"X"))
+        y = np.load("{}{}.npy".format(filepath,"y"))
+
+        return X,y
 
 def build_sample_loader(audio_dir, Y, loader):
 
@@ -339,7 +354,7 @@ def build_sample_loader(audio_dir, Y, loader):
                 tids = np.array(self.tids[batch_current:batch_current+batch_size])
 
             for i, tid in enumerate(tids):
-                self.X[i] = self.loader.load(get_audio_path(audio_dir, tid))
+                self.X[i] = self.loader.load(audio_dir)
                 self.Y[i] = Y.loc[tid]
 
             with self.lock2:
@@ -353,6 +368,70 @@ def build_sample_loader(audio_dir, Y, loader):
                 return self.X[:batch_size], self.Y[:batch_size]
 
     return SampleLoader
+
+def build_npy_mat_sample_loader(audio_dir, loader,sample_size):
+
+    class SampleLoader:
+
+        def __init__(self, tids, batch_size=4):
+            self.ss = sample_size
+            self.curr=0
+            self.lock1 = multiprocessing.Lock()
+            self.lock2 = multiprocessing.Lock()
+            self.batch_foremost = sharedctypes.RawValue(ctypes.c_int, 0)
+            self.batch_rearmost = sharedctypes.RawValue(ctypes.c_int, -1)
+            self.condition = multiprocessing.Condition(lock=self.lock2)
+
+            data = sharedctypes.RawArray(ctypes.c_int, tids.data)
+            self.tids = np.ctypeslib.as_array(data)
+
+            self.batch_size = batch_size
+            self.loader = loader
+
+            # self.X = np.empty((self.batch_size, *loader.shape))
+            # self.Y = np.empty((self.batch_size, Y.shape[1]), dtype=np.int)
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            if self.ss==self.curr:
+                raise StopIteration
+            with self.lock1:
+                if self.batch_foremost.value == 0:
+                    np.random.shuffle(self.tids)
+
+                batch_current = self.batch_foremost.value
+                if self.batch_foremost.value + self.batch_size < self.tids.size:
+                    batch_size = self.batch_size
+                    self.batch_foremost.value += self.batch_size
+                else:
+                    batch_size = self.tids.size - self.batch_foremost.value
+                    self.batch_foremost.value = 0
+
+                # print(self.tids, self.batch_foremost.value, batch_current, self.tids[batch_current], batch_size)
+                # print('queue', self.tids[batch_current], batch_size)
+                tids = np.array(self.tids[batch_current:batch_current+batch_size])
+            #
+            # for i, tid in enumerate(tids):
+            #     self.X[i] = self.loader.load(audio_dir)
+            #     self.Y[i] = Y.loc[tid]
+
+                self.X,self.Y=self.loader.load(audio_dir+"/{}".format(self.curr))
+                self.curr+=1
+
+            with self.lock2:
+                while (batch_current - self.batch_rearmost.value) % self.tids.size > self.batch_size:
+                    # print('wait', indices[0], batch_current, self.batch_rearmost.value)
+                    self.condition.wait()
+                self.condition.notify_all()
+                # print('yield', indices[0], batch_current, self.batch_rearmost.value)
+                self.batch_rearmost.value = batch_current
+
+                return self.X[:batch_size], self.Y[:batch_size]
+
+    return SampleLoader
+
 
 def build_sample_saver(audio_dir, output_dir, Y, loader):
 
@@ -385,7 +464,7 @@ def build_sample_saver(audio_dir, output_dir, Y, loader):
                     np.random.shuffle(self.tids)
                     #I think this is shuffling everything the first time __next__ is called.
 
-                batch_current = self.batch_foremost.value 
+                batch_current = self.batch_foremost.value
                 if self.batch_foremost.value + self.batch_size < self.tids.size:
                     batch_size = self.batch_size
                     self.batch_foremost.value += self.batch_size
@@ -404,7 +483,7 @@ def build_sample_saver(audio_dir, output_dir, Y, loader):
                 except Exception as e:
                     print(i, tid)
                     raise e
-                
+
                 self.Y[i] = Y.loc[tid]
 
             with self.lock2:
@@ -415,13 +494,12 @@ def build_sample_saver(audio_dir, output_dir, Y, loader):
                 # print('yield', indices[0], batch_current, self.batch_rearmost.value)
                 self.batch_rearmost.value = batch_current
                 #print(self.X.shape, self.X[:batch_size].shape) dunno why we're doing [:batch_size]... it's the whole thing
-                np.save("{}\\{}X.npy".format(output_dir, batch_current//self.batch_size), self.X[:batch_size])
-                np.save("{}\\{}y.npy".format(output_dir, batch_current//self.batch_size), self.Y[:batch_size])
+                np.save("{}/{}X.npy".format(output_dir, batch_current//self.batch_size), self.X[:batch_size])
+                np.save("{}/{}y.npy".format(output_dir, batch_current//self.batch_size), self.Y[:batch_size])
                 #return self.X[:batch_size], self.Y[:batch_size]
         def save_all(self):
             size = self.tids.size
             for _ in self:
                 print(self.batch_foremost, "out of", size)
-                
-    return SampleSaver
 
+    return SampleSaver
