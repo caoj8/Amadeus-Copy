@@ -4,3 +4,4 @@ fma_small/*
 
 .ipynb_checkpoints/
 fma_code/logs/
+spectrogram/*
