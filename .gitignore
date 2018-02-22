@@ -1,3 +1,6 @@
 fma_metadata/*
 fma_small/*
 **/*.mp3
+
+.ipynb_checkpoints/
+fma_code/logs/
